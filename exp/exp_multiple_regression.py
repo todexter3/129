@@ -10,7 +10,7 @@ from datetime import datetime
 from src.metrics import metric
 import torch.optim.lr_scheduler as lr_scheduler
 import pandas as pd
-import data_provider.data_loader_heiyi_kfold as data_loader_heiyi_daily
+import data_provider.data_loader as data_loader_heiyi_daily
 import utils.plt_heiyi as plt_heiyi
 from torch.utils.data import DataLoader
 from exp.exp_basic import Exp_Basic
@@ -614,3 +614,4 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
             f.write(f'the average corr value of {all_test_corr}\n\n')
 
         return
+
