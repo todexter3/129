@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from layers.Transformer_EncDec import Encoder, EncoderLayer, DecoderLayer
 from layers.SelfAttention_Family import FullAttention, AttentionLayer
-from layers.Embed import PatchEmbedding_C_group
+from layers.Embed_pos import PatchEmbedding_C_group
 import copy
 
 class Transpose(nn.Module):
@@ -60,7 +60,7 @@ class Model(nn.Module):
         
         self.pred_len = configs.pred_len
         
-        self.alpha = torch.nn.Parameter(torch.tensor(configs.tau_hat_init))  # 可学习的tau_hat参数
+        self.alpha = torch.nn.Parameter(torch.tensor(configs.tau_hat_init)) 
         
 
         padding = configs.stride
@@ -125,16 +125,17 @@ class Model(nn.Module):
                 )
 
         # Prediction Head 
-        min_seq_len = self.seq_len_list[-1]
-        self.min_head_nf = int((min_seq_len - patch_len) / stride + 2)
+        max_seq_len = max(self.seq_len_list)
+        self.max_head_nf = int((max_seq_len - patch_len) / stride + 2)
 
         if self.task_name in ('multiple_regression','predict_feature'):
             self.flatten = nn.Flatten(start_dim=-2)
             self.dropout = nn.Dropout(configs.dropout)
-            self.projection = nn.Linear(self.min_head_nf * self.total_d_model, configs.output_channels)
-            
-        # 兼容其他 task (虽然逻辑可能需要对应修改)
+            # 线性层的输入维度变大，适应长窗口
+            self.projection = nn.Linear(self.max_head_nf * self.total_d_model, configs.output_channels)
 
+            
+        # 其他 task 
         self.head_nf_total = 0
         for sl in self.seq_len_list:
             num_patches = int((sl - patch_len) / stride + 2)
@@ -151,13 +152,12 @@ class Model(nn.Module):
             self.projection = nn.Linear(self.head_nf * configs.enc_in, configs.num_class)
         
 
-    def _encode_all_groups_once(self, x_enc):
+    def _encode_all_groups_once(self, x_enc, start_index=0):
         B = x_enc.shape[0]
         x_in = x_enc.permute(0, 2, 1) 
         
         # Patch Embedding
-        enc_out_list, n_vars = self.patch_embedding(x_in)
-        
+        enc_out_list, n_vars = self.patch_embedding(x_in, start_index=start_index)
         # Encoder
         split_sizes = [t.shape[0] for t in enc_out_list]  
         enc_inputs = torch.cat(enc_out_list, dim=0)      
@@ -165,7 +165,6 @@ class Model(nn.Module):
         
         # conv
         enc_outputs = self.multi_scale(enc_outputs)      
-        
         splits = torch.split(enc_outputs, split_sizes, dim=0)  
         
         group_tensors = []
@@ -181,38 +180,47 @@ class Model(nn.Module):
 
     def regression(self, x_enc_list):
         # 对每个窗口独立进行 Self-Attention
+        max_seq_len = max(self.seq_len_list)
+        max_patch_num = int((max_seq_len - self.configs.patch_len) / self.configs.stride + 2)
+
+
         encoded_results = []
         
-        for x_enc in x_enc_list:
+       
+        for i, x_enc in enumerate(x_enc_list):
             # Normalization
             means = x_enc.mean(1, keepdim=True).detach()
             x = x_enc - means
             stdev = torch.sqrt(torch.var(x, dim=1, keepdim=True, unbiased=False) + 1e-5)
             x = x / stdev
 
+            current_seq_len = self.seq_len_list[i] 
+            curr_patch_num = int((current_seq_len - self.configs.patch_len) / self.configs.stride + 2)
+            offset = max_patch_num - curr_patch_num
+
+
             # encoder 
-            out_cat, n_vars = self._encode_all_groups_once(x)  
+            out_cat, n_vars = self._encode_all_groups_once(x, start_index=offset)
             
             out_formatted = out_cat.squeeze(1).permute(0, 2, 1) 
-            
             encoded_results.append(out_formatted)
 
-        encoded_results.sort(key=lambda x: x.shape[1], reverse=True)
+        encoded_results.sort(key=lambda x: x.shape[1], reverse=True) 
 
         #  Cross-Attention
-        # 初始 KV为最长窗口的特征
-        curr_kv = encoded_results[0] 
+        #  初始 KV为最长窗口的特征
+        curr_query = encoded_results[0]
 
         if len(encoded_results) > 1:
             for i in range(1, len(encoded_results)):
-                # Q 为下一个较短窗口的特征
-                curr_query = encoded_results[i]
+                # Key/Value 是较短的窗口 
+                curr_kv = encoded_results[i]
 
-                curr_kv = self.cascade_decoders[i-1](x=curr_query, cross=curr_kv)
+                # Cross Attention，形状保持和 curr_query 一致
+                curr_query = self.cascade_decoders[i-1](x=curr_query, cross=curr_kv)
                 
-      
-        final_out = curr_kv 
-
+        final_out = curr_query
+        
         # Projection 
         output = self.flatten(final_out) 
         output = self.dropout(output)
@@ -234,4 +242,11 @@ class Model(nn.Module):
         if self.task_name == 'multiple_regression':
             return self.regression(x_enc_list)
         return None
+
+
+
+
+
+
+
 
