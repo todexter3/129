@@ -245,17 +245,17 @@ class Dataset_regression():
         for col in feature_cols:
             train_set[col] = np.clip(train_set[col], quantiles.loc[col, 'q5'], quantiles.loc[col, 'q95'])
 
-        
+        """
         params = np.load('/cpfs/fs3200/ppl/cta/project/flap01/submitted_code/e2eDig/ctac2_v2/code/model/model_parameter/p7_comb_v1/price/patchtst_gc_1_0/2024/robust_scaler.npz')
         scaler = RobustScaler(quantile_range=(5, 95))
         scaler.center_ = params['center_']
         scaler.scale_ = params['scale_']
         scaler.feature_names_in_ = params['feature_names_in_']
         scaler.n_features_in_ = params['n_features_in_']
+        """
         
-        
-        """scaler = RobustScaler(quantile_range=(5, 95))
-        train_set[feature_cols] = scaler.fit_transform(train_set[feature_cols])"""
+        scaler = RobustScaler(quantile_range=(5, 95))
+        train_set[feature_cols] = scaler.fit_transform(train_set[feature_cols])
         
         test_set[feature_cols] = scaler.transform(test_set[feature_cols])
         joblib.dump(scaler, f'{self.args.save_path}/robust_scaler.pkl')
@@ -328,20 +328,22 @@ class Dataset_regression_dataset(Dataset):
         for i in range(len(self.data_length)):
             if index < self.data_length[i]:
                 current_idx_in_ticker = index - self.data_length[i - 1] 
+                # 计算最长窗口的起始点，这是所有窗口共同的结束点基准
                 s_end = self.start_indices[i - 1] + current_idx_in_ticker + self.max_seq_len
-                
-                # 多窗口切片
+      
                 seq_x_list = []
                 for slen in self.seq_len_list:
-                    s_begin = s_end - slen
-                    seq_x_sub = self.data_x[s_begin:s_end]
+                    curr_s_begin = s_end - slen
+                    seq_x_sub = self.data_x[curr_s_begin:s_end]
                     seq_x_list.append(seq_x_sub)
                 
                 seq_y = self.data_y[s_end-1]
 
                 time_gra = {'ticker': str(self.tickers.iloc[s_end-1:s_end].values[0]), 'time': str(self.data_stamp['time'].iloc[s_end-1:s_end].values[0])}
 
-                seq_f = self.data_y[s_begin:s_end] # 加入历史y和当前y
+            
+                max_s_begin = s_end - self.max_seq_len
+                seq_f = self.data_y[max_s_begin:s_end]
 
                 return seq_x_list, seq_y, time_gra, seq_f
 
@@ -377,5 +379,8 @@ def Dataset_regression_test(args):
     test_loader = DataLoader(dataset=test_dataset, batch_size=128, shuffle=False, pin_memory=True,
                              drop_last=False, num_workers=10)
     return test_dataset, test_loader
+
+
+
 
 
