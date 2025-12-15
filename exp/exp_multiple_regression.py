@@ -10,7 +10,7 @@ from datetime import datetime
 from src.metrics import metric
 import torch.optim.lr_scheduler as lr_scheduler
 import pandas as pd
-import data_provider.data_loader as data_loader_heiyi_daily
+import data_provider.data_loader_heiyi_kfold as data_loader_heiyi_daily
 import utils.plt_heiyi as plt_heiyi
 from torch.utils.data import DataLoader
 from exp.exp_basic import Exp_Basic
@@ -20,17 +20,21 @@ from utils.loss import WeightedMSELoss
 warnings.filterwarnings('ignore')
 
 class TDataset(Dataset):
-
     def __init__(self, X, y, time_gra):        
-        self.X = X
+        self.X = X 
         self.time_gra = time_gra
         self.y = y
 
     def __len__(self):
-        return len(self.X)
+        return len(self.X[0]) 
 
     def __getitem__(self, idx: int):
-        return self.X[idx], self.y[idx], self.time_gra[idx]
+
+        x_sample = [x[idx] for x in self.X] 
+        return x_sample, self.y[idx], self.time_gra[idx]
+    
+
+
     
 def print_model_parameters(model, only_num=True):
     print('*************************Model Total Parameter************************')
@@ -112,29 +116,31 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
         return criterion
 
     def prepared_dataset(self, train_data):
-        data_x = []
+        # 初始化 data_x 为一个列表，长度等于 seq_len_list 的长度
+        # 假设 seq_len_list = [120, 90, 60]，则 data_x = [[], [], []]
+        num_scales = len(self.args.seq_len_list)
+        data_x = [[] for _ in range(num_scales)] 
         data_y = []
         dates = []
         tickers = []
+        
         temp_loader = DataLoader(dataset=train_data, batch_size=self.args.batch_size, shuffle=False, pin_memory=True, drop_last=False, num_workers=10)
+        
         for i, batch_data in enumerate(temp_loader):
-            batch_x = batch_data[0]
+            batch_x_list = batch_data[0] # 这是一个列表，包含 [Tensor(B, 120, D), Tensor(B, 90, D)...]
             batch_y = batch_data[1]
             time_gra = batch_data[2]
-            if not isinstance(batch_x, torch.Tensor):
-                if isinstance(batch_x, list) and len(batch_x) > 0 and isinstance(batch_x[0], torch.Tensor):
-                    batch_x = torch.stack(batch_x)
-                else:
-                    batch_x = torch.tensor(batch_x)
-            if not isinstance(batch_y, torch.Tensor):
-                if isinstance(batch_y, list) and len(batch_y) > 0 and isinstance(batch_y[0], torch.Tensor):
-                    batch_y = torch.stack(batch_y)
-                else:
-                    batch_y = torch.tensor(batch_y)
+            
+            # 分别将不同长度的数据存入对应的列表
+            for scale_idx in range(num_scales):
+                data_x[scale_idx].append(batch_x_list[scale_idx])
 
-            data_x.append(batch_x)
+            # 处理 Y
+            if not isinstance(batch_y, torch.Tensor):
+                 batch_y = torch.tensor(batch_y)
             data_y.append(batch_y)
 
+            # 处理 Time/Ticker (保持原样)
             if isinstance(time_gra, dict):
                 d = [datetime.strptime(t[:26], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%d%H:%M:%S') 
                      if isinstance(t, str) else t 
@@ -143,13 +149,13 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
                 dates.append(d)
                 tickers.append(ticker)
 
-            d = [datetime.strptime(t[:26], '%Y-%m-%dT%H:%M:%S.%f').strftime('%Y-%m-%d%H:%M:%S') if isinstance(t, str) else t for t in time_gra['time']]
-            ticker = [t.strip("[]' ") for t in time_gra['ticker']]
-            dates.append(d)
-            tickers.append(ticker)
-
-        data_x = torch.cat(data_x, dim=0)
-        data_y = torch.cat(data_y, dim=0)
+        # 在循环结束后，对每个尺度分别进行 cat
+        # 最终 data_x 是一个列表: [Tensor(Total, 120, D), Tensor(Total, 90, D), ...]
+        final_data_x = []
+        for scale_idx in range(num_scales):
+            final_data_x.append(torch.cat(data_x[scale_idx], dim=0))
+            
+        final_data_y = torch.cat(data_y, dim=0)
 
         if dates:
             dates = np.concatenate(dates)
@@ -162,7 +168,7 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
             num_dates = 0
             sorted_dates = np.array([])
             
-        return num_dates, sorted_dates, data_x, data_y, dates
+        return num_dates, sorted_dates, final_data_x, final_data_y, dates
     
     def load_dataset(self, num_dates, fold, sorted_dates, data_x, data_y, dates):
         # 计算当前fold的验证集日期范围
@@ -181,19 +187,21 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
         val_mask = np.isin(dates, val_dates)
         train_mask = np.isin(dates, train_dates)
         # 分割数据
-        train_set_x = data_x[train_mask]
+        train_set_x = [x[train_mask] for x in data_x]
+        val_set_x = [x[val_mask] for x in data_x]
         train_set_y = data_y[train_mask]
-        val_set_x = data_x[val_mask]
         val_set_y = data_y[val_mask]
         dates_train_x = dates[train_mask]
         dates_val_x = dates[val_mask]
 
         # 创建数据集和数据加载器
         train_dataset = TDataset(train_set_x, train_set_y, dates_train_x)
-        val_dataset = TDataset(val_set_x, val_set_y,dates_val_x)
+        val_dataset = TDataset(val_set_x, val_set_y, dates_val_x)
+
         train_loader = DataLoader(train_dataset, batch_size=self.args.batch_size, shuffle=True, pin_memory=True, drop_last=False, num_workers=10)
         vali_loader = DataLoader(val_dataset, batch_size=self.args.batch_size, shuffle=False, pin_memory=True, drop_last=True, num_workers=10)
         return train_dataset, train_loader, val_dataset, vali_loader
+    
     def load_dataset_time(self, num_dates, fold, sorted_dates, data_x, data_y, dates):
         val_size = int(0.2 * num_dates)
         each_train_size = (num_dates - val_size) // self.args.num_fold
@@ -206,10 +214,11 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
         # 创建mask
         val_mask = np.isin(dates, val_dates)
         train_mask = np.isin(dates, train_dates)
+
         # 分割数据
-        train_set_x = data_x[train_mask]
+        train_set_x = [x[train_mask] for x in data_x]
+        val_set_x = [x[val_mask] for x in data_x]
         train_set_y = data_y[train_mask]
-        val_set_x = data_x[val_mask]
         val_set_y = data_y[val_mask]
         dates_train_x = dates[train_mask]
         dates_val_x = dates[val_mask]
@@ -232,9 +241,9 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
         train_mask = np.isin(dates, train_dates)
         val_mask = np.isin(dates, val_dates)
         # 分割数据
-        train_set_x = data_x[train_mask]
+        train_set_x = [x[train_mask] for x in data_x]
+        val_set_x = [x[val_mask] for x in data_x]
         train_set_y = data_y[train_mask]
-        val_set_x = data_x[val_mask]
         val_set_y = data_y[val_mask]
         dates_train_x = dates[train_mask]
         dates_val_x = dates[val_mask]
@@ -303,8 +312,14 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
                 for i, (batch_x, batch_y, time_gra) in enumerate(train_loader):
                     if i == 0: print(batch_x.shape, batch_y.shape)
                     model_optim.zero_grad()
-                    batch_x = batch_x.float().to(self.device, non_blocking=True)
+
+                    if isinstance(batch_x, list):
+                        batch_x = [x.float().to(self.device, non_blocking=True) for x in batch_x]
+                    else:
+                        batch_x = batch_x.float().to(self.device, non_blocking=True)
+                        
                     batch_y = batch_y.float().to(self.device, non_blocking=True)
+
                     if self.args.model == 'DUET' or self.args.model == 'Path':
                         outputs, importance = self.model(batch_x)
                     else:
@@ -418,8 +433,14 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
         p_loss_list = []
         with torch.no_grad():
             for i, (batch_x, batch_y, time_gra) in enumerate(vali_loader):
-                batch_x = batch_x.float().to(self.device)
-                batch_y = batch_y.float().to(self.device)
+                if isinstance(batch_x, list):
+                    batch_x = [x.float().to(self.device, non_blocking=True) for x in batch_x]
+                else:
+                    batch_x = batch_x.float().to(self.device, non_blocking=True)
+                        
+                 batch_y = batch_y.float().to(self.device, non_blocking=True)
+                    
+
                 if self.args.model == 'DUET' or self.args.model == 'Path':
                     outputs, _ = self.model(batch_x)
                 else:
@@ -508,8 +529,13 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
             self.model.eval()
             with torch.no_grad():
                 for i, (batch_x, batch_y, time_gra) in enumerate(test_loader):
-                    batch_x = batch_x.float().to(self.device)
-                    batch_y = batch_y.float().to(self.device)
+                    if isinstance(batch_x, list):
+                        batch_x = [x.float().to(self.device, non_blocking=True) for x in batch_x]
+                    else:
+                        batch_x = batch_x.float().to(self.device, non_blocking=True)
+                        
+                    batch_y = batch_y.float().to(self.device, non_blocking=True)
+                    
 
                     if self.args.model == 'AMD' or self.args.model == 'Path' or self.args.model == 'DUET':
                         outputs, _ = self.model(batch_x)
@@ -614,4 +640,5 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
             f.write(f'the average corr value of {all_test_corr}\n\n')
 
         return
+
 
