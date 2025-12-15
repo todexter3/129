@@ -2,7 +2,7 @@ import argparse
 import os
 import re
 import torch
-from exp.exp_multiple_regression_kfold import Exp_Multiple_Regression_Fold
+from exp.exp_multiple_regression import Exp_Multiple_Regression_Fold
 import random
 import numpy as np
 import os
