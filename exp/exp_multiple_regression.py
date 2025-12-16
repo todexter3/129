@@ -310,7 +310,6 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
                 epoch_time = time.time()
                 
                 for i, (batch_x, batch_y, time_gra) in enumerate(train_loader):
-                    if i == 0: print(batch_x.shape, batch_y.shape)
                     model_optim.zero_grad()
 
                     if isinstance(batch_x, list):
@@ -319,6 +318,8 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
                         batch_x = batch_x.float().to(self.device, non_blocking=True)
                         
                     batch_y = batch_y.float().to(self.device, non_blocking=True)
+
+                    #if i == 0: print(batch_x.shape, batch_y.shape)
 
                     if self.args.model == 'DUET' or self.args.model == 'Path':
                         outputs, importance = self.model(batch_x)
@@ -341,8 +342,15 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
                     if self.args.loss == 'MSE_with_weak':
                         tau_hat = torch.sigmoid(self.model.alpha)
                         tau = 1 - tau_hat
-                        loss_dict = criterion(batch_x, outputs[~mask], batch_y[~mask], tau_hat, tau, self.args.c_norms)
+                        
+                        if isinstance(batch_x, list):
+                            batch_x_masked = [x[~mask] for x in batch_x]
+                        else:
+                            batch_x_masked = batch_x[~mask]
+
+                        loss_dict = criterion(batch_x_masked, outputs[~mask], batch_y[~mask], tau_hat, tau, self.args.c_norms)
                         mse = loss_dict['total']
+
                     else:
                         mse = criterion(outputs[~mask], batch_y[~mask])
                     if self.args.model == 'DUET' or self.args.model == 'Path':
@@ -438,7 +446,7 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
                 else:
                     batch_x = batch_x.float().to(self.device, non_blocking=True)
                         
-                 batch_y = batch_y.float().to(self.device, non_blocking=True)
+                batch_y = batch_y.float().to(self.device, non_blocking=True)
                     
 
                 if self.args.model == 'DUET' or self.args.model == 'Path':
@@ -460,7 +468,13 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
                 if self.args.loss == 'MSE_with_weak':
                     tau_hat = torch.sigmoid(self.model.alpha)
                     tau = 1 - tau_hat
-                    loss_dict = criterion(batch_x, outputs[~mask], batch_y[~mask], tau_hat, tau, self.args.c_norms)
+
+                    if isinstance(batch_x, list):
+                        batch_x_masked = [x[~mask] for x in batch_x]
+                    else:
+                        batch_x_masked = batch_x[~mask]
+
+                    loss_dict = criterion(batch_x_masked, outputs[~mask], batch_y[~mask], tau_hat, tau, self.args.c_norms)
                     loss = loss_dict['total']
                     mse_loss = loss_dict['mse']
                     v_loss = loss_dict['V_loss']
@@ -560,8 +574,15 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
                     if self.args.loss == 'MSE_with_weak':
                         tau_hat = torch.sigmoid(self.model.alpha)
                         tau = 1 - tau_hat
-                        loss_dict = criterion(batch_x, outputs[~mask], batch_y[~mask], tau_hat, tau, self.args.c_norms)
+
+                        if isinstance(batch_x, list):
+                            batch_x_masked = [x[~mask] for x in batch_x]
+                        else:
+                            batch_x_masked = batch_x[~mask]
+
+                        loss_dict = criterion(batch_x_masked, outputs[~mask], batch_y[~mask], tau_hat, tau, self.args.c_norms)
                         mse_loss.append(loss_dict['total'])
+
                     else:
                         mse_loss.append(criterion(outputs[~mask], batch_y[~mask]))
 
@@ -640,5 +661,4 @@ class Exp_Multiple_Regression_Fold(Exp_Basic):
             f.write(f'the average corr value of {all_test_corr}\n\n')
 
         return
-
 
