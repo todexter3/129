@@ -40,80 +40,7 @@ class Dataset_regression():
 
         self.__read_data__()
 
-    '''
-    def __get_data__(self):
-        df = feather.read_feather(self.data_path)
-
-        # 取phi=f-n 这里只用了f去做loss，原生特征没用上
-        # 法1：按照排序取5个
-        self.n = 1
-        df = df.replace([-np.inf, np.inf], np.nan)
-        df.iloc[:, 15:] = df.iloc[:, 15:].fillna(df.iloc[:, 15:].median())
-        features = df.iloc[:, 15:]
-        corr = features.corrwith(df['y10'])        # 返回 Series：列名 → 相关系数
-        top5_cols = corr.sort_values(ascending=False).index[:self.n]
-
-        # df = df.iloc[:, :15]
-        # df = df.replace([-np.inf, np.inf], np.nan)
-        columns = ['time','ticker','y10', 'main_ret_slp', 'ret', 'close_adj', 'high_adj', 'low_adj', 'open_adj',
-             'tr', 'volume', 'capvol0','y5','y20']
-        feature_cols = ['main_ret_slp', 'ret', 'close_adj', 'high_adj', 'low_adj', 'open_adj', 'tr', 'volume', 'capvol0']
-        df = pd.concat([df[columns], df[[c for c in top5_cols if c != self.pred_task]].fillna(df[top5_cols].median())],axis=1)
-
-        
-        df['time'] = pd.to_datetime(df['time'].astype(str), format='%Y%m%d')
-
-        cols = ['main_ret_slp', 'close_adj', 'high_adj', 'low_adj', 'open_adj', 'tr', 'capvol0']
-        train_set = pd.DataFrame()
-        test_set = pd.DataFrame()
-        grouped = df.groupby('ticker')
-        for _, group in grouped:
-            # 先做前值填充
-            group['ret'] = group['ret'].fillna(0)
-            group['volume'] = group['volume'].fillna(0)
-            group[cols] = group[cols].ffill()
-            # 删除第一行nan
-            group.dropna(subset=group.columns[3:], inplace=True, how='any')
-
-            data = group[
-                (group['time'] >= str(self.train_start_year + '-01-01')) & (group['time'] <= str(self.train_end_year + '-12-31'))]
-            test = group[(group['time'] >= str(self.test_year + '-01-01')) & (group['time'] <= str(self.test_year + '-12-31'))]
-
-            if len(data) <= self.args.pred_task + self.seq_len - 1: # 当训练数据不足以生成完整的序列，这里多加了predtask
-                if self.seq_len > 1:
-                    test = pd.concat([data.iloc[-(self.seq_len - 1):], test])
-                    if len(test) <= self.args.pred_task + self.seq_len - 1: # 如果训练数据不足生成完整序列就打算把他放到test中生成新的test数据，但是需要防止新的test不能生成完整序列，这里如果加入了不完整的数据会导致加载数据错位，这个地方是不是不应该加predtask
-                        continue
-                    test_set = pd.concat([test_set, test]) # 短数据拼接到test，生成新的test数据
-                else:
-                    if len(test) <= self.args.pred_task + self.seq_len - 1:
-                        continue
-                    test_set = pd.concat([test_set, test])
-                continue
-            # 选取当前 ticker 的数据
-            ticker_data = data.copy()
-            if len(ticker_data.iloc[:-(self.args.pred_task)]) < self.seq_len:
-                if len(test) <= self.args.pred_task + self.seq_len - 1:
-                    continue
-                else:
-                    if self.seq_len > 1:
-                        test = pd.concat([data.iloc[-(self.seq_len - 1):], test]) # 为了预测test起始数据
-                        test_set = pd.concat([test_set, test])
-                    else:
-                        test_set = pd.concat([test_set, test])
-            else:
-                train_data = ticker_data.iloc[:-(self.args.pred_task)]
-                train_set = pd.concat([train_set, train_data])
-                if len(test) <= self.args.pred_task + self.seq_len - 1:
-                    continue
-                else:
-                    if self.seq_len > 1:
-                        test = pd.concat([data.iloc[-(self.seq_len - 1):], test])
-                        test_set = pd.concat([test_set, test])
-                    else:
-                        test_set = pd.concat([test_set, test])
-
-    '''
+    
     def __get_data__(self):
         # df = pd.read_feather(self.data_path)
         df = pd.read_feather(self.data_path)
@@ -187,49 +114,7 @@ class Dataset_regression():
                         continue
                     test_set = pd.concat([test_set, test])
 
-            '''
-            data = group[
-                (group['time'] >= str(self.train_start_year + '-01-01')) & (
-                            group['time'] <= str(self.train_end_year + '-12-31'))]
-            test = group[
-                (group['time'] >= str(self.test_year + '-01-01')) & (group['time'] <= str(self.test_year + '-12-31'))]
-
-            if len(data) <= self.args.pred_task + self.seq_len - 1:  # 当训练数据不足以生成完整的序列，这里多加了predtask
-                if self.seq_len > 1:
-                    test = pd.concat([data.iloc[-(self.seq_len - 1):], test])
-                    if len(test) <= self.seq_len - 1:  # 如果训练数据不足生成完整序列就打算把他放到test中生成新的test数据，但是需要防止新的test不能生成完整序列，这里如果加入了不完整的数据会导致加载数据错位，这个地方是不是不应该加predtask
-                        continue
-                    test_set = pd.concat([test_set, test])  # 短数据拼接到test，生成新的test数据
-                else:
-                    if len(test) <= self.seq_len - 1:
-                        continue
-                    test_set = pd.concat([test_set, test])
-                continue
-            # 选取当前 ticker 的数据
-            ticker_data = data.copy()
-            if len(ticker_data.iloc[:-(self.args.pred_task)]) < self.seq_len:
-                if len(test) <= self.seq_len - 1:
-                    continue
-                else:
-                    if self.seq_len > 1:
-                        test = pd.concat([data.iloc[-(self.seq_len - 1):], test])  # 为了预测test起始数据
-                        test_set = pd.concat([test_set, test])
-                    else:
-                        test_set = pd.concat([test_set, test])
-            else:
-                train_data = ticker_data.iloc[:-(self.args.pred_task)]
-                train_set = pd.concat([train_set, train_data])
-
-                if len(test) <=  self.seq_len - 1:
-                    continue
-                else:
-                    if self.seq_len > 1:
-                        test = pd.concat([data.iloc[-(self.seq_len - 1):], test])
-                        test_set = pd.concat([test_set, test])
-                    else:
-                        test_set = pd.concat([test_set, test])
-            '''
-
+            
         # 对异常值做截断，排除y
         quantiles_label = train_set[self.pred_task].quantile([0.01, 0.99])
         # 提取分位数值（直接通过索引访问）
@@ -379,6 +264,8 @@ def Dataset_regression_test(args):
     test_loader = DataLoader(dataset=test_dataset, batch_size=128, shuffle=False, pin_memory=True,
                              drop_last=False, num_workers=10)
     return test_dataset, test_loader
+
+
 
 
 
