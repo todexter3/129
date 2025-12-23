@@ -1,6 +1,7 @@
 import os
 import torch
-from models import PatchTST_C_c, PatchTST_C_group, PatchTST_C_group_speed, PatchTST_C_group_mult_speed, MLP
+from models import PatchTST_C_c, PatchTST_C_group, PatchTST_C_group_speed,  MLP,PatchTST_C_gcmql_s2l, MLP,PatchTST_C_gcmql_s2l_pos,PatchTST_C_gcmql_pos,PatchTST_C_gcmql_s2l_pos2,PatchTST_C_gcmql_pos2,PatchTST_C_gcmql_s2l_pos3,PatchTST_C_gcmql_pos3,PatchTST_C_gcmql_s2l_pos3_dif
+
 
 
 class Exp_Basic(object):
@@ -10,9 +11,17 @@ class Exp_Basic(object):
             
             'PatchTST_C_group': PatchTST_C_group,
             'PatchTST_C_group_speed': PatchTST_C_group_speed,
-            'PatchTST_C_group_mult_speed': PatchTST_C_group_mult_speed,
+
             'PatchTST_C_c':PatchTST_C_c,
-            'MLP':MLP
+            'MLP': MLP,
+            'PatchTST_C_gcmql_s2l':PatchTST_C_gcmql_s2l,
+            'PatchTST_C_gcmql_pos':PatchTST_C_gcmql_pos,
+            'PatchTST_C_gcmql_s2l_pos':PatchTST_C_gcmql_s2l_pos,
+            'PatchTST_C_gcmql_pos2':PatchTST_C_gcmql_pos2,
+            'PatchTST_C_gcmql_s2l_pos2':PatchTST_C_gcmql_s2l_pos2,
+            'PatchTST_C_gcmql_pos3':PatchTST_C_gcmql_pos3,
+            'PatchTST_C_gcmql_s2l_pos3':PatchTST_C_gcmql_s2l_pos3,
+            'PatchTST_C_gcmql_s2l_pos3_dif':PatchTST_C_gcmql_s2l_pos3_dif
 
         }
 

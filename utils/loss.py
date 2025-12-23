@@ -27,7 +27,13 @@ class WeightedMSELoss(nn.Module):
         引入谓词,构造V和P矩阵
         问题：p矩阵和V矩阵是否需要归一化？
         """
-        batch_size = batch_x.shape[0]
+        if isinstance(batch_x, list):
+            # 如果是多尺度列表，取第一个尺度（通常是最长窗口）作为计算依据
+            x_input = batch_x[0]
+        else:
+            x_input = batch_x
+        batch_size = x_input.shape[0]
+    
         V = torch.eye(batch_size, device=device)  # 单位矩阵 (batch_size x batch_size)
         #P = torch.zeros((batch_size, batch_size), device=device)
         #phi = c_norms # b s
@@ -35,9 +41,12 @@ class WeightedMSELoss(nn.Module):
         #P = torch.mm(phi,phi.T) # bxb
 
         #ret均值
-        phi = batch_x[:,:,1].mean(dim=1)
-        phi = (phi / torch.linalg.norm(phi)).unsqueeze(0)
-        P = torch.mm( phi.T,phi)    
+        phi = x_input[:, :, 1].mean(dim=1)
+        norm = torch.linalg.norm(phi)
+        # 如果 norm 为 0，加上 1e-8 防止 NaN
+        phi = (phi / (norm + 1e-8)).unsqueeze(0)
+
+        P = torch.mm(phi.T, phi)  
 
         return V, P
         # for m in range(len(c_norms)):
